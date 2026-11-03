@@ -182,6 +182,21 @@ body {
   gap: 6px;
 }
 
+.panel-section[hidden] {
+  display: none;
+}
+
+.mode-select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--kbd-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  max-width: 150px;
+}
+
 .label {
   font-size: 10px;
   letter-spacing: 2px;

@@ -83,6 +83,15 @@ const FLOAT_MS = 900;
 const PULSE_MS = 300;
 const PARTICLES_PER_CELL = 2;
 const SOUND_KEY = 'tetris-sound';
+const CHALLENGE_KEY = 'tetris-challenges';
+// Desafíos progresivos: alcanzar `target` de `goal` (lines | score | tetris) antes de `timeMs`
+const CHALLENGES = [
+  { name: '10 líneas en 60 s', goal: 'lines', target: 10, timeMs: 60000 },
+  { name: '20 líneas en 90 s', goal: 'lines', target: 20, timeMs: 90000 },
+  { name: '40 líneas en 2 min', goal: 'lines', target: 40, timeMs: 120000 },
+  { name: '5.000 puntos en 2 min', goal: 'score', target: 5000, timeMs: 120000 },
+  { name: '3 Tetris en 3 min', goal: 'tetris', target: 3, timeMs: 180000 },
+];
 const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
 const canvas = document.getElementById('board');
@@ -100,6 +109,10 @@ const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
 const soundBtn = document.getElementById('sound-toggle');
+const modeSelect = document.getElementById('mode-select');
+const challengeInfo = document.getElementById('challenge-info');
+const goalEl = document.getElementById('goal');
+const timerEl = document.getElementById('timer');
 
 const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
@@ -107,7 +120,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -338,7 +351,7 @@ function clearLines(tspin) {
       r++;
     }
   }
-  if (cleared === 4) rewardPending = true;
+  if (cleared === 4) { rewardPending = true; tetrises++; }
   if (cleared) {
     if (Math.floor((lines + cleared) / BOMB_EVERY) > Math.floor(lines / BOMB_EVERY)) bombPending = true;
     if (Math.floor((lines + cleared) / LIGHTNING_EVERY) > Math.floor(lines / LIGHTNING_EVERY)) lightningPending = true;
@@ -417,7 +430,58 @@ function lockPiece() {
       updateHUD();
     }
   }
+  if (challenge >= 0 && challengeProgress() >= CHALLENGES[challenge].target) {
+    winChallenge();
+    return;
+  }
   spawn();
+}
+
+function challengeProgress() {
+  const goal = CHALLENGES[challenge].goal;
+  return goal === 'lines' ? lines : goal === 'score' ? score : tetrises;
+}
+
+function getUnlocked() {
+  let n = 0;
+  try { n = parseInt(localStorage.getItem(CHALLENGE_KEY), 10) || 0; } catch (e) { /* ignorar */ }
+  return Math.min(Math.max(n, 0), CHALLENGES.length - 1);
+}
+
+// Opciones del selector: Normal + desafíos; los no desbloqueados quedan bloqueados
+function buildModeOptions() {
+  const unlocked = getUnlocked();
+  const sel = modeSelect.value || '-1';
+  modeSelect.innerHTML = '';
+  const opts = [{ value: -1, text: 'Normal', locked: false }];
+  CHALLENGES.forEach((ch, i) => {
+    const locked = i > unlocked;
+    opts.push({ value: i, text: `${locked ? '🔒 ' : ''}${i + 1}. ${ch.name}`, locked });
+  });
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.value;
+    el.textContent = o.text;
+    el.disabled = o.locked;
+    modeSelect.appendChild(el);
+  }
+  modeSelect.value = sel;
+}
+
+function winChallenge() {
+  const unlocked = Math.max(getUnlocked(), Math.min(challenge + 1, CHALLENGES.length - 1));
+  try { localStorage.setItem(CHALLENGE_KEY, String(unlocked)); } catch (e) { /* almacenamiento no disponible */ }
+  buildModeOptions();
+  updateHUD();
+  playPerfect();
+  endGame('¡DESAFÍO SUPERADO!');
+}
+
+function updateTimer() {
+  const secs = Math.ceil(Math.max(timeLeft, 0) / 1000);
+  if (secs === shownSecs) return;
+  shownSecs = secs;
+  timerEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 }
 
 function spawn() {
@@ -460,6 +524,12 @@ function updateHUD() {
   levelEl.textContent = level;
   comboEl.textContent = combo > 1 ? `x${combo}` : '—';
   b2bEl.textContent = b2b > 1 ? `x${b2b}` : '—';
+  challengeInfo.hidden = challenge < 0;
+  if (challenge >= 0) {
+    const ch = CHALLENGES[challenge];
+    goalEl.textContent = `${Math.min(challengeProgress(), ch.target).toLocaleString()}/${ch.target.toLocaleString()}`;
+    updateTimer();
+  }
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -629,10 +699,10 @@ function drawNext() {
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
 }
 
-function endGame() {
+function endGame(title) {
   gameOver = true;
   cancelAnimationFrame(animId);
-  overlayTitle.textContent = 'GAME OVER';
+  overlayTitle.textContent = title || 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
   overlay.classList.remove('hidden');
 }
@@ -672,7 +742,13 @@ function loop(ts) {
     f.life -= dt;
   }
   floats = floats.filter(f => f.life > 0);
-  if (dropAccum >= dropInterval) {
+  // El reloj del desafío corre siempre (congelar no lo detiene); la pausa cancela el loop
+  if (challenge >= 0) {
+    timeLeft -= dt;
+    updateTimer();
+    if (timeLeft <= 0) endGame('TIEMPO AGOTADO');
+  }
+  if (!gameOver && dropAccum >= dropInterval) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
@@ -709,6 +785,11 @@ function loadTheme() {
 }
 
 function init() {
+  challenge = parseInt(modeSelect.value, 10);
+  if (isNaN(challenge)) challenge = -1;
+  timeLeft = challenge >= 0 ? CHALLENGES[challenge].timeMs : 0;
+  tetrises = 0;
+  shownSecs = -1;
   board = createBoard();
   score = 0;
   lines = 0;
@@ -771,6 +852,11 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+modeSelect.addEventListener('change', () => {
+  init();
+  modeSelect.blur(); // evita que las flechas cambien el modo en pleno juego
+});
+
 themeBtn.addEventListener('click', () => {
   setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light', true);
   themeBtn.blur(); // evita que Space/Enter vuelvan a activar el botón
@@ -796,4 +882,5 @@ soundBtn.addEventListener('keyup', e => {
 
 loadTheme();
 loadSound();
+buildModeOptions();
 init();
