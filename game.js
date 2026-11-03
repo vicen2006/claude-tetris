@@ -84,6 +84,7 @@ const TSPIN_FLASH_MS = 1500;
 const B2B_MULT = 1.5;
 const PERFECT_BONUS = 2000;
 const PERFECT_FLASH_MS = 2000;
+const REVERSE_FLASH_MS = 1500;
 const INVISIBLE_FADE_MS = 700;
 const CLEAR_FLASH_MS = 150;
 const FLOAT_MS = 900;
@@ -96,6 +97,7 @@ const CHALLENGE_KEY = 'tetris-challenges';
 // `clear`: el tablero arranca con `layout` (strings de COLS chars, '#' = bloque fijo, alineado al fondo);
 // se gana al eliminar todos los fijos (el target es el nº de celdas del layout)
 // `invisible`: las piezas se desvanecen al bloquearse (el montón no se ve; sin ghost); combinable con cualquier goal
+// `reverseLevel`: desde ese nivel la rotación es antihoraria; combinable con cualquier goal
 const CHALLENGES = [
   { name: '10 líneas en 60 s', goal: 'lines', target: 10, timeMs: 60000 },
   { name: '20 líneas en 90 s', goal: 'lines', target: 20, timeMs: 90000 },
@@ -129,6 +131,8 @@ const CHALLENGES = [
   ] },
   { name: '10 líneas a ciegas en 2 min', goal: 'lines', target: 10, timeMs: 120000, invisible: true },
   { name: '20 líneas a ciegas en 3 min', goal: 'lines', target: 20, timeMs: 180000, invisible: true },
+  { name: '20 líneas, inversa desde nivel 2', goal: 'lines', target: 20, timeMs: 150000, reverseLevel: 2 },
+  { name: '40 líneas, inversa desde nivel 3', goal: 'lines', target: 40, timeMs: 240000, reverseLevel: 3 },
 ];
 const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
@@ -158,7 +162,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -292,6 +296,15 @@ function rotateCW(shape) {
   return result;
 }
 
+function rotateCCW(shape) {
+  const rows = shape.length, cols = shape[0].length;
+  const result = Array.from({ length: cols }, () => new Array(rows).fill(0));
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      result[cols - 1 - c][r] = shape[r][c];
+  return result;
+}
+
 function isLightning(type) {
   return type === LIGHTNING_H || type === LIGHTNING_V;
 }
@@ -303,7 +316,7 @@ function tryRotate() {
     current.shape = [[current.type]];
     return;
   }
-  const rotated = rotateCW(current.shape);
+  const rotated = isReversed() ? rotateCCW(current.shape) : rotateCW(current.shape);
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collide(rotated, current.x + kick, current.y)) {
@@ -438,7 +451,12 @@ function clearLines(tspin) {
       score += PERFECT_BONUS * level;
       perfectLeft = PERFECT_FLASH_MS;
     }
+    const wasReversed = isReversed();
     level = Math.floor(lines / 10) + 1;
+    if (!wasReversed && isReversed()) {
+      reverseLeft = REVERSE_FLASH_MS;
+      playTone(220, 0.3, 'sawtooth');
+    }
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
     chainFx(fullRows, score - before, cleared, hard);
@@ -477,6 +495,11 @@ function softDrop() {
   } else {
     lockPiece();
   }
+}
+
+// Desafío `reverseLevel`: desde ese nivel la rotación es antihoraria
+function isReversed() {
+  return challenge >= 0 && !!CHALLENGES[challenge].reverseLevel && level >= CHALLENGES[challenge].reverseLevel;
 }
 
 // Desafío `invisible`: el montón no se dibuja mientras la partida sigue viva
@@ -778,6 +801,20 @@ function draw() {
     ctx.fillText('PERFECT CLEAR!', canvas.width / 2, canvas.height / 2);
   }
 
+  // rotación inversa: aviso al activarse e indicador fijo mientras dure
+  if (reverseLeft > 0) {
+    ctx.fillStyle = '#ba68c8';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ROTACIÓN INVERSA', canvas.width / 2, canvas.height * 0.6);
+  }
+  if (isReversed()) {
+    ctx.fillStyle = '#ba68c8';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('↺', 6, canvas.height - 8);
+  }
+
   // combo activo
   if (combo > 1) {
     ctx.fillStyle = '#ffd54f';
@@ -836,6 +873,7 @@ function loop(ts) {
   else dropAccum += dt;
   if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
   if (perfectLeft > 0) perfectLeft = Math.max(0, perfectLeft - dt);
+  if (reverseLeft > 0) reverseLeft = Math.max(0, reverseLeft - dt);
   if (fadeLeft > 0) fadeLeft = Math.max(0, fadeLeft - dt);
   if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
   if (comboPulse > 0) comboPulse = Math.max(0, comboPulse - dt);
@@ -933,6 +971,7 @@ function init() {
   tspinText = '';
   tspinLeft = 0;
   perfectLeft = 0;
+  reverseLeft = 0;
   fadeCells = [];
   fadeLeft = 0;
   flashRows = [];
