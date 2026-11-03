@@ -83,6 +83,7 @@ const QUEUE_SIZE = 4; // next + QUEUE_SIZE = 5 piezas visibles
 const PREVIEW_PIECES = 10;
 const SKILLS = [
   { name: 'Ver 5 piezas', desc: 'Muestra las siguientes 5 piezas durante 10 piezas', activate() { previewLeft = PREVIEW_PIECES; } },
+  { name: 'Intercambiar pieza', desc: 'Cambia la pieza actual por otra aleatoria', activate() { return swapCurrent(); } },
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
@@ -343,6 +344,21 @@ function tryRotate() {
       return;
     }
   }
+}
+
+// Habilidad: cambia `current` por otra pieza del pool (tipo distinto); false si no cabe
+function swapCurrent() {
+  let piece;
+  do { piece = randomPiece(); } while (piece.type === current.type);
+  const spots = [0, -1, 1, -2, 2].map(k => ({ x: current.x + k, y: current.y }));
+  spots.push({ x: piece.x, y: piece.y });
+  const spot = spots.find(s => !collide(piece.shape, s.x, s.y));
+  if (!spot) return false;
+  piece.x = spot.x;
+  piece.y = spot.y;
+  current = piece;
+  lastRotate = false;
+  return true;
 }
 
 function merge() {
@@ -898,8 +914,8 @@ function closeSkills() {
 
 function useSkill(i) {
   if (!choosing || !SKILLS[i]) return;
+  if (SKILLS[i].activate() === false) { closeSkills(); return; }
   energy = 0;
-  SKILLS[i].activate();
   playPerfect();
   closeSkills();
   updateHUD();
