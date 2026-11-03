@@ -54,8 +54,18 @@
         </div>
 
         <div class="panel-section">
+          <span class="label">ENERGÍA <kbd>E</kbd></span>
+          <div class="energy-bar" id="energy-bar"><div id="energy-fill"></div></div>
+        </div>
+
+        <div class="panel-section">
           <span class="label">NEXT</span>
           <canvas id="next-canvas" width="120" height="120"></canvas>
+        </div>
+
+        <div class="panel-section" id="queue-section" hidden>
+          <span class="label" id="queue-label">SIGUIENTES</span>
+          <canvas id="queue-canvas" width="80" height="240"></canvas>
         </div>
 
         <div class="panel-section controls">
@@ -66,9 +76,18 @@
             <li><kbd>↓</kbd> bajar</li>
             <li><kbd>Space</kbd> caída</li>
             <li><kbd>P</kbd> pausa</li>
+            <li><kbd>E</kbd> habilidad</li>
           </ul>
         </div>
       </aside>
+    </div>
+
+    <div id="skill-menu" class="overlay hidden">
+      <div class="overlay-box">
+        <p class="skill-title">HABILIDAD</p>
+        <div id="skill-list"></div>
+        <p class="skill-hint"><kbd>Esc</kbd> cancelar</p>
+      </div>
     </div>
 
     <div id="overlay" class="overlay hidden">

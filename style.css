@@ -212,11 +212,82 @@ body {
   letter-spacing: 1px;
 }
 
-#next-canvas {
+#next-canvas,
+#queue-canvas {
   display: block;
   border: 1px solid var(--border);
   background: var(--board-bg);
   border-radius: 4px;
+}
+
+/* ---- Habilidades ---- */
+.energy-bar {
+  width: 120px;
+  height: 10px;
+  background: var(--kbd-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+#energy-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s;
+}
+
+.energy-bar.full {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: energy-glow 1s ease-in-out infinite alternate;
+}
+
+@keyframes energy-glow {
+  from { box-shadow: 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 10px var(--accent); }
+}
+
+.skill-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--accent);
+}
+
+#skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.skill-btn span {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.skill-btn:hover {
+  background: var(--accent-hover);
+}
+
+.skill-hint {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ---- Controles ---- */

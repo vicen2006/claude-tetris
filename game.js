@@ -76,6 +76,15 @@ const FREEZE_EVERY = 8;
 const FREEZE_MS = 5000;
 const WILD_BONUS = 20;
 
+// Habilidades cargables: la barra de energía se llena al limpiar líneas; `E` abre el menú
+const ENERGY_MAX = 100;
+const ENERGY_PER_LINE = 10;
+const QUEUE_SIZE = 4; // next + QUEUE_SIZE = 5 piezas visibles
+const PREVIEW_PIECES = 10;
+const SKILLS = [
+  { name: 'Ver 5 piezas', desc: 'Muestra las siguientes 5 piezas durante 10 piezas', activate() { previewLeft = PREVIEW_PIECES; } },
+];
+
 const LINE_SCORES = [0, 100, 300, 500, 800];
 const T_TYPE = 3;
 const TSPIN_SCORES = [400, 800, 1200, 1600];
@@ -155,6 +164,14 @@ const modeSelect = document.getElementById('mode-select');
 const challengeInfo = document.getElementById('challenge-info');
 const goalEl = document.getElementById('goal');
 const timerEl = document.getElementById('timer');
+const energyBar = document.getElementById('energy-bar');
+const energyFill = document.getElementById('energy-fill');
+const queueSection = document.getElementById('queue-section');
+const queueLabel = document.getElementById('queue-label');
+const queueCanvas = document.getElementById('queue-canvas');
+const queueCtx = queueCanvas.getContext('2d');
+const skillMenu = document.getElementById('skill-menu');
+const skillList = document.getElementById('skill-list');
 
 const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
@@ -162,7 +179,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, choosing;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -441,6 +458,9 @@ function clearLines(tspin) {
     if (Math.floor((lines + cleared) / GRAVITY_EVERY) > Math.floor(lines / GRAVITY_EVERY)) gravityPending = true;
     if (Math.floor((lines + cleared) / FREEZE_EVERY) > Math.floor(lines / FREEZE_EVERY)) freezePending = true;
     lines += cleared;
+    const wasFull = energy >= ENERGY_MAX;
+    energy = Math.min(ENERGY_MAX, energy + cleared * ENERGY_PER_LINE);
+    if (!wasFull && energy >= ENERGY_MAX) playTone(880, 0.25, 'triangle');
     const hard = cleared === 4 || tspin;
     const b2bBonus = hard && b2b > 0;
     b2b = hard ? b2b + 1 : 0;
@@ -623,9 +643,11 @@ function spawn() {
       next = randomPiece(FREEZE_TYPE);
       freezePending = false;
     } else {
-      next = randomPiece();
+      next = queue.shift();
+      queue.push(randomPiece());
     }
   }
+  if (previewLeft > 0) previewLeft--;
   if (collide(current.shape, current.x, current.y)) {
     endGame();
   }
@@ -638,6 +660,8 @@ function updateHUD() {
   levelEl.textContent = level;
   comboEl.textContent = combo > 1 ? `x${combo}` : '—';
   b2bEl.textContent = b2b > 1 ? `x${b2b}` : '—';
+  energyFill.style.width = `${energy}%`;
+  energyBar.classList.toggle('full', energy >= ENERGY_MAX);
   challengeInfo.hidden = challenge < 0;
   if (challenge >= 0) {
     const target = challengeTarget();
@@ -841,6 +865,59 @@ function drawNext() {
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+
+  // habilidad "Ver 5 piezas": cola de las siguientes piezas tras `next`
+  queueSection.hidden = previewLeft <= 0;
+  queueCtx.clearRect(0, 0, queueCanvas.width, queueCanvas.height);
+  if (previewLeft <= 0) return;
+  queueLabel.textContent = `SIGUIENTES (${previewLeft})`;
+  const QB = 15; // cada pieza ocupa un slot de 4×4 bloques (60 px)
+  queue.forEach((p, i) => {
+    const ox = Math.floor((4 - p.shape[0].length) / 2);
+    const oy = Math.floor((4 - p.shape.length) / 2);
+    for (let r = 0; r < p.shape.length; r++)
+      for (let c = 0; c < p.shape[r].length; c++)
+        drawBlock(queueCtx, ox + c + 1, oy + r + i * 4, p.shape[r][c], QB);
+  });
+}
+
+function openSkills() {
+  if (energy < ENERGY_MAX || paused || gameOver || choosing) return;
+  choosing = true;
+  cancelAnimationFrame(animId);
+  skillMenu.classList.remove('hidden');
+}
+
+function closeSkills() {
+  if (!choosing) return;
+  choosing = false;
+  skillMenu.classList.add('hidden');
+  lastTime = performance.now();
+  loop(lastTime);
+}
+
+function useSkill(i) {
+  if (!choosing || !SKILLS[i]) return;
+  energy = 0;
+  SKILLS[i].activate();
+  playPerfect();
+  closeSkills();
+  updateHUD();
+  drawNext();
+}
+
+function buildSkillMenu() {
+  SKILLS.forEach((s, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'skill-btn';
+    btn.innerHTML = `<strong>${i + 1}. ${s.name}</strong><span>${s.desc}</span>`;
+    btn.addEventListener('click', () => { useSkill(i); btn.blur(); });
+    btn.addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+    });
+    skillList.appendChild(btn);
+  });
 }
 
 function endGame(title) {
@@ -979,8 +1056,13 @@ function init() {
   particles = [];
   floats = [];
   comboPulse = 0;
+  energy = 0;
+  previewLeft = 0;
+  choosing = false;
+  skillMenu.classList.add('hidden');
   lastTime = performance.now();
   next = randomPiece();
+  queue = Array.from({ length: QUEUE_SIZE }, () => randomPiece());
   spawn();
   updateHUD();
   overlay.classList.add('hidden');
@@ -989,6 +1071,11 @@ function init() {
 }
 
 document.addEventListener('keydown', e => {
+  if (choosing) {
+    if (e.code === 'Escape' || e.code === 'KeyE') closeSkills();
+    else if (/^Digit[1-9]$/.test(e.code)) useSkill(parseInt(e.code.slice(5), 10) - 1);
+    return;
+  }
   if (e.code === 'KeyP') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -1008,6 +1095,9 @@ document.addEventListener('keydown', e => {
     case 'Space':
       e.preventDefault();
       hardDrop();
+      break;
+    case 'KeyE':
+      openSkills();
       break;
   }
   updateHUD();
@@ -1046,4 +1136,5 @@ soundBtn.addEventListener('keyup', e => {
 loadTheme();
 loadSound();
 buildModeOptions();
+buildSkillMenu();
 init();
