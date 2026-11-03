@@ -84,6 +84,7 @@ const TSPIN_FLASH_MS = 1500;
 const B2B_MULT = 1.5;
 const PERFECT_BONUS = 2000;
 const PERFECT_FLASH_MS = 2000;
+const INVISIBLE_FADE_MS = 700;
 const CLEAR_FLASH_MS = 150;
 const FLOAT_MS = 900;
 const PULSE_MS = 300;
@@ -94,6 +95,7 @@ const CHALLENGE_KEY = 'tetris-challenges';
 // `survive`: aguantar `timeMs` (target = segundos) mientras sube una fila de basura cada `garbageMs`
 // `clear`: el tablero arranca con `layout` (strings de COLS chars, '#' = bloque fijo, alineado al fondo);
 // se gana al eliminar todos los fijos (el target es el nº de celdas del layout)
+// `invisible`: las piezas se desvanecen al bloquearse (el montón no se ve; sin ghost); combinable con cualquier goal
 const CHALLENGES = [
   { name: '10 líneas en 60 s', goal: 'lines', target: 10, timeMs: 60000 },
   { name: '20 líneas en 90 s', goal: 'lines', target: 20, timeMs: 90000 },
@@ -125,6 +127,8 @@ const CHALLENGES = [
     '#.#.#.#.#.',
     '.#.#.#.#.#',
   ] },
+  { name: '10 líneas a ciegas en 2 min', goal: 'lines', target: 10, timeMs: 120000, invisible: true },
+  { name: '20 líneas a ciegas en 3 min', goal: 'lines', target: 20, timeMs: 180000, invisible: true },
 ];
 const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
@@ -154,7 +158,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -475,6 +479,11 @@ function softDrop() {
   }
 }
 
+// Desafío `invisible`: el montón no se dibuja mientras la partida sigue viva
+function isInvisible() {
+  return challenge >= 0 && !!CHALLENGES[challenge].invisible && !gameOver;
+}
+
 function lockPiece() {
   if (current.type === BOMB_TYPE) {
     explode();
@@ -488,6 +497,13 @@ function lockPiece() {
     freezeLeft = FREEZE_MS;
   } else {
     const tspin = isTSpin();
+    if (isInvisible()) {
+      fadeCells = [];
+      for (let r = 0; r < current.shape.length; r++)
+        for (let c = 0; c < current.shape[r].length; c++)
+          if (current.shape[r][c]) fadeCells.push({ x: current.x + c, y: current.y + r, type: current.shape[r][c] });
+      fadeLeft = INVISIBLE_FADE_MS;
+    }
     merge();
     if (!clearLines(tspin)) {
       if (combo > 1) playBreak();
@@ -680,16 +696,25 @@ function draw() {
   drawGrid();
 
   // board
+  const hidden = isInvisible();
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+      if (!hidden || board[r][c] === GARBAGE_TYPE || board[r][c] === FIXED_TYPE)
+        drawBlock(ctx, c, r, board[r][c], BLOCK);
+  // la última pieza bloqueada se desvanece
+  if (hidden && fadeLeft > 0)
+    for (const f of fadeCells)
+      if (board[f.y] && board[f.y][f.x] === f.type)
+        drawBlock(ctx, f.x, f.y, f.type, BLOCK, fadeLeft / INVISIBLE_FADE_MS);
 
-  // ghost
-  const gy = ghostY();
-  for (let r = 0; r < current.shape.length; r++)
-    for (let c = 0; c < current.shape[r].length; c++)
-      if (current.shape[r][c])
-        drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
+  // ghost (delataría la altura del montón en modo invisible)
+  if (!hidden) {
+    const gy = ghostY();
+    for (let r = 0; r < current.shape.length; r++)
+      for (let c = 0; c < current.shape[r].length; c++)
+        if (current.shape[r][c])
+          drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
+  }
 
   // current piece
   for (let r = 0; r < current.shape.length; r++)
@@ -787,6 +812,7 @@ function endGame(title) {
   overlayTitle.textContent = title || 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
   overlay.classList.remove('hidden');
+  draw(); // revela el tablero completo en desafíos invisibles
 }
 
 function togglePause() {
@@ -810,6 +836,7 @@ function loop(ts) {
   else dropAccum += dt;
   if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
   if (perfectLeft > 0) perfectLeft = Math.max(0, perfectLeft - dt);
+  if (fadeLeft > 0) fadeLeft = Math.max(0, fadeLeft - dt);
   if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
   if (comboPulse > 0) comboPulse = Math.max(0, comboPulse - dt);
   for (const p of particles) {
@@ -906,6 +933,8 @@ function init() {
   tspinText = '';
   tspinLeft = 0;
   perfectLeft = 0;
+  fadeCells = [];
+  fadeLeft = 0;
   flashRows = [];
   flashLeft = 0;
   particles = [];
