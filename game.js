@@ -181,12 +181,20 @@ const skillMenu = document.getElementById('skill-menu');
 const skillList = document.getElementById('skill-list');
 
 const THEME_KEY = 'tetris-theme';
+const START_LEVEL_KEY = 'tetris-start-level';
+const MAX_START_LEVEL = 15;
+const pauseMenu = document.getElementById('pause-menu');
+const pauseResume = document.getElementById('pause-resume');
+const pauseRestart = document.getElementById('pause-restart');
+const pauseControlsBtn = document.getElementById('pause-controls-btn');
+const pauseControls = document.getElementById('pause-controls');
+const startLevelSelect = document.getElementById('start-level');
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdUsed;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdUsed, startLevel = 1, baseLevel = 1;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -554,7 +562,7 @@ function clearLines(tspin) {
       perfectLeft = PERFECT_FLASH_MS;
     }
     const wasReversed = isReversed();
-    level = Math.floor(lines / 10) + 1;
+    level = Math.max(baseLevel, Math.floor(lines / 10) + 1);
     if (!wasReversed && isReversed()) {
       reverseLeft = REVERSE_FLASH_MS;
       playTone(220, 0.3, 'sawtooth');
@@ -1044,10 +1052,53 @@ function togglePause() {
     loop(lastTime);
   } else {
     cancelAnimationFrame(animId);
-    overlayTitle.textContent = 'PAUSA';
-    overlayScore.textContent = '';
-    overlay.classList.remove('hidden');
   }
+  pauseMenu.classList.toggle('hidden', !paused);
+  if (!paused && document.activeElement) document.activeElement.blur(); // el foco no debe quedar en un control oculto
+  if (!paused) {
+    pauseControls.hidden = true;
+    pauseControlsBtn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function setStartLevel(n, save) {
+  startLevel = Math.min(MAX_START_LEVEL, Math.max(1, parseInt(n, 10) || 1));
+  startLevelSelect.value = String(startLevel);
+  if (save) {
+    try { localStorage.setItem(START_LEVEL_KEY, String(startLevel)); } catch (e) { /* almacenamiento no disponible */ }
+  }
+}
+
+function loadStartLevel() {
+  let saved = null;
+  try { saved = localStorage.getItem(START_LEVEL_KEY); } catch (e) { /* ignorar */ }
+  setStartLevel(saved, false);
+}
+
+function buildPauseMenu() {
+  for (let i = 1; i <= MAX_START_LEVEL; i++) {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = String(i);
+    startLevelSelect.appendChild(opt);
+  }
+  pauseResume.addEventListener('click', () => { togglePause(); pauseResume.blur(); });
+  pauseRestart.addEventListener('click', () => {
+    pauseRestart.blur();
+    init();
+  });
+  pauseControlsBtn.addEventListener('click', () => {
+    pauseControls.hidden = !pauseControls.hidden;
+    pauseControlsBtn.setAttribute('aria-expanded', String(!pauseControls.hidden));
+    pauseControlsBtn.blur();
+  });
+  startLevelSelect.addEventListener("change", () => { setStartLevel(startLevelSelect.value, true); });
+  // Space/Enter con un botón del menú enfocado no deben activarlo ni filtrarse al juego
+  [pauseResume, pauseRestart, pauseControlsBtn].forEach(btn => {
+    ['keydown', 'keyup'].forEach(type => btn.addEventListener(type, e => {
+      if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+    }));
+  });
 }
 
 function loop(ts) {
@@ -1138,10 +1189,11 @@ function init() {
   fixedTotal = challenge >= 0 && CHALLENGES[challenge].layout ? placeLayout(CHALLENGES[challenge].layout) : 0;
   score = 0;
   lines = 0;
-  level = 1;
+  baseLevel = challenge >= 0 ? 1 : startLevel; // los desafíos ignoran el nivel inicial
+  level = baseLevel;
   paused = false;
   gameOver = false;
-  dropInterval = 1000;
+  dropInterval = Math.max(100, 1000 - (level - 1) * 90);
   dropAccum = 0;
   rewardPending = false;
   bombPending = false;
@@ -1178,6 +1230,9 @@ function init() {
   spawn();
   updateHUD();
   overlay.classList.add('hidden');
+  pauseMenu.classList.add('hidden');
+  pauseControls.hidden = true;
+  pauseControlsBtn.setAttribute('aria-expanded', 'false');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
@@ -1188,7 +1243,11 @@ document.addEventListener('keydown', e => {
     else if (/^Digit[1-9]$/.test(e.code)) useSkill(parseInt(e.code.slice(5), 10) - 1);
     return;
   }
-  if (e.code === 'KeyP') { togglePause(); return; }
+  if (e.target instanceof HTMLSelectElement && e.code === "Escape") return; // Esc cierra el desplegable nativo
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (!e.repeat) togglePause();
+    return;
+  }
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
@@ -1252,6 +1311,8 @@ soundBtn.addEventListener('keyup', e => {
 
 loadTheme();
 loadSound();
+loadStartLevel();
+buildPauseMenu();
 buildModeOptions();
 buildSkillMenu();
 init();
