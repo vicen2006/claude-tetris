@@ -76,6 +76,8 @@ const TSPIN_SCORES = [400, 800, 1200, 1600];
 const TSPIN_NAMES = ['T-SPIN', 'T-SPIN SINGLE', 'T-SPIN DOUBLE', 'T-SPIN TRIPLE'];
 const TSPIN_FLASH_MS = 1500;
 const B2B_MULT = 1.5;
+const PERFECT_BONUS = 2000;
+const PERFECT_FLASH_MS = 2000;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -96,7 +98,7 @@ const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -243,6 +245,10 @@ function clearLines(tspin) {
     combo++;
     const base = (tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared]) || 0;
     score += Math.round((base * level * (b2bBonus ? B2B_MULT : 1) + wilds * WILD_BONUS * level) * combo);
+    if (board.every(row => row.every(v => v === 0))) {
+      score += PERFECT_BONUS * level;
+      perfectLeft = PERFECT_FLASH_MS;
+    }
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
@@ -453,6 +459,14 @@ function draw() {
     ctx.fillText(tspinText, canvas.width / 2, canvas.height / 3);
   }
 
+  // aviso de Perfect Clear
+  if (perfectLeft > 0) {
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PERFECT CLEAR!', canvas.width / 2, canvas.height / 2);
+  }
+
   // combo activo
   if (combo > 1) {
     ctx.fillStyle = '#ffd54f';
@@ -509,6 +523,7 @@ function loop(ts) {
   if (freezeLeft > 0) freezeLeft = Math.max(0, freezeLeft - dt);
   else dropAccum += dt;
   if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
+  if (perfectLeft > 0) perfectLeft = Math.max(0, perfectLeft - dt);
   if (dropAccum >= dropInterval) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
@@ -566,6 +581,7 @@ function init() {
   lastRotate = false;
   tspinText = '';
   tspinLeft = 0;
+  perfectLeft = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
