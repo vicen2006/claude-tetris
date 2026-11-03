@@ -29,6 +29,44 @@ const COLORS = [
   '#8d6e63', // F - fijo (marrón piedra, solo tablero)
 ];
 
+// Skins visuales: paleta (mismo índice que COLORS), estilo de bloque y color de cuadrícula opcional
+function mixHex(hex, to, t) {
+  const n = parseInt(hex.slice(1), 16), m = parseInt(to.slice(1), 16);
+  const ch = sh => Math.round(((n >> sh) & 255) * (1 - t) + ((m >> sh) & 255) * t);
+  return '#' + [16, 8, 0].map(sh => ch(sh).toString(16).padStart(2, '0')).join('');
+}
+const SKINS = {
+  retro: { style: 'flat', colors: COLORS },
+  neon: {
+    style: 'neon',
+    grid: '#1c1c30',
+    edge: 'transparent',
+    colors: [null, '#00f0ff', '#ffee00', '#d500f9', '#39ff14', '#ff1744', '#2979ff', '#ff9100', '#cfd8dc',
+      '#c6ff00', '#00e5c0', '#7c4dff', '#ff4081', '#ff3d00', '#ffff00', '#ffff00', '#ff00ff', '#ffffff',
+      '#00b0ff', '#a7ffeb', '#78909c', '#a1887f']
+  },
+  pastel: {
+    style: 'round',
+    colors: COLORS.map((c, i) => c && i !== 17 ? mixHex(c, '#ffffff', 0.4) : c)
+  },
+  pixel: { style: 'pixel', colors: COLORS }
+};
+const SKIN_KEY = 'tetris-skin';
+function skinDef() { return SKINS[skin] || SKINS.retro; }
+function colorOf(i) { return skinDef().colors[i] || COLORS[i]; }
+
+// Rectángulo redondeado (roundRect con fallback a arcTo)
+function roundRectPath(context, x, y, w, h, r) {
+  context.beginPath();
+  if (context.roundRect) { context.roundRect(x, y, w, h, r); return; }
+  context.moveTo(x + r, y);
+  context.arcTo(x + w, y, x + w, y + h, r);
+  context.arcTo(x + w, y + h, x, y + h, r);
+  context.arcTo(x, y + h, x, y, r);
+  context.arcTo(x, y, x + w, y, r);
+  context.closePath();
+}
+
 const PIECES = [
   null,
   [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
@@ -165,6 +203,7 @@ const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
 const soundBtn = document.getElementById('sound-toggle');
+const skinSelect = document.getElementById('skin-select');
 const modeSelect = document.getElementById('mode-select');
 const challengeInfo = document.getElementById('challenge-info');
 const goalEl = document.getElementById('goal');
@@ -186,7 +225,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdUsed;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdUsed, skin;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -270,7 +309,7 @@ function chainFx(rows, gained, cleared, strong) {
           vy: -Math.random() * 0.25,
           life,
           max: life,
-          color: v === WILD_TYPE ? RAINBOW[Math.floor(Math.random() * RAINBOW.length)] : COLORS[v]
+          color: v === WILD_TYPE ? RAINBOW[Math.floor(Math.random() * RAINBOW.length)] : colorOf(v)
         });
       }
     });
@@ -756,18 +795,42 @@ function updateHUD() {
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
-  let color = COLORS[colorIndex];
+  let color = colorOf(colorIndex);
   if (colorIndex === WILD_TYPE) {
     const g = context.createLinearGradient(x * size, y * size, (x + 1) * size, (y + 1) * size);
     ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'].forEach((c, i) => g.addColorStop(i / 4, c));
     color = g;
   }
+  const style = skinDef().style;
+  const bx = x * size + 1, by = y * size + 1, bs = size - 2;
   context.globalAlpha = alpha ?? 1;
   context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  if (style === 'round') {
+    roundRectPath(context, bx, by, bs, bs, bs * 0.3);
+    context.fill();
+  } else {
+    if (style === 'neon') {
+      context.shadowColor = typeof color === 'string' ? color : '#ffffff';
+      context.shadowBlur = size * 0.5;
+    }
+    context.fillRect(bx, by, bs, bs);
+    context.shadowBlur = 0;
+    context.shadowColor = 'transparent';
+    if (style === 'pixel') {
+      // damero de "píxeles" más claros / oscuros
+      const p = Math.max(2, Math.round(size / 6));
+      for (let i = 0; i * p < bs; i++) {
+        for (let j = 0; j * p < bs; j++) {
+          context.fillStyle = (i + j) % 2 ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.16)';
+          context.fillRect(bx + i * p, by + j * p, Math.min(p, bs - i * p), Math.min(p, bs - j * p));
+        }
+      }
+    } else {
+      // highlight
+      context.fillStyle = 'rgba(255,255,255,0.12)';
+      context.fillRect(bx, by, bs, 4);
+    }
+  }
   if (isLightning(colorIndex)) {
     // barra oscura que indica la orientación
     context.fillStyle = 'rgba(0,0,0,0.5)';
@@ -800,7 +863,9 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (blockEdge !== 'transparent') {
     context.strokeStyle = blockEdge;
     context.lineWidth = 1;
-    context.strokeRect(x * size + 1.5, y * size + 1.5, size - 3, size - 3);
+    if (style === 'round') roundRectPath(context, x * size + 1.5, y * size + 1.5, size - 3, size - 3, (size - 2) * 0.3);
+    else { context.beginPath(); context.rect(x * size + 1.5, y * size + 1.5, size - 3, size - 3); }
+    context.stroke();
   }
   context.globalAlpha = 1;
 }
@@ -905,7 +970,7 @@ function draw() {
 
   // aviso de T-spin
   if (tspinLeft > 0) {
-    ctx.fillStyle = COLORS[T_TYPE];
+    ctx.fillStyle = colorOf(T_TYPE);
     ctx.font = 'bold 20px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(tspinText, canvas.width / 2, canvas.height / 3);
@@ -1105,15 +1170,20 @@ function loop(ts) {
   animId = requestAnimationFrame(loop);
 }
 
+// Colores de cuadrícula/borde: variables del tema, con override opcional de la skin
+function readCanvasColors() {
+  const style = getComputedStyle(document.documentElement);
+  gridColor = skinDef().grid || style.getPropertyValue('--grid').trim();
+  blockEdge = skinDef().edge || style.getPropertyValue('--block-edge').trim();
+}
+
 function setTheme(theme, save) {
   if (theme !== 'light') theme = 'dark';
   document.documentElement.dataset.theme = theme;
   const light = theme === 'light';
   themeBtn.setAttribute('aria-pressed', String(light));
   themeBtn.setAttribute('aria-label', light ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro');
-  const style = getComputedStyle(document.documentElement);
-  gridColor = style.getPropertyValue('--grid').trim();
-  blockEdge = style.getPropertyValue('--block-edge').trim();
+  readCanvasColors();
   if (save) {
     try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* almacenamiento no disponible */ }
   }
@@ -1125,6 +1195,25 @@ function loadTheme() {
   let saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { /* ignorar */ }
   setTheme(saved === 'light' ? 'light' : 'dark', false);
+}
+
+function setSkin(name, save) {
+  if (!SKINS[name]) name = 'retro';
+  skin = name;
+  document.documentElement.dataset.skin = name;
+  skinSelect.value = name;
+  readCanvasColors();
+  if (save) {
+    try { localStorage.setItem(SKIN_KEY, name); } catch (e) { /* almacenamiento no disponible */ }
+  }
+  // Redibujar aunque el loop esté cancelado (pausa / game over)
+  if (current && next) { draw(); drawNext(); }
+}
+
+function loadSkin() {
+  let saved = null;
+  try { saved = localStorage.getItem(SKIN_KEY); } catch (e) { /* ignorar */ }
+  setSkin(saved, false);
 }
 
 function init() {
@@ -1250,7 +1339,21 @@ soundBtn.addEventListener('keyup', e => {
   if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
 });
 
+skinSelect.addEventListener('change', () => {
+  setSkin(skinSelect.value, true);
+  skinSelect.blur(); // evita que las flechas cambien la skin en pleno juego
+});
+// Space/Enter con el select enfocado no deben abrirlo ni afectar al juego
+skinSelect.addEventListener('keydown', e => {
+  e.stopPropagation(); // ni flechas ni Space/Enter llegan al juego
+  if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+});
+skinSelect.addEventListener('keyup', e => {
+  if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+});
+
 loadTheme();
+loadSkin();
 loadSound();
 buildModeOptions();
 buildSkillMenu();
