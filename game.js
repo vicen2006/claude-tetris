@@ -81,7 +81,6 @@ const ENERGY_MAX = 100;
 const ENERGY_PER_LINE = 10;
 const QUEUE_SIZE = 4; // next + QUEUE_SIZE = 5 piezas visibles
 const PREVIEW_PIECES = 10;
-const HOLD_PIECES = 10;
 const SLOW_MS = 10000;
 const SLOW_FACTOR = 2; // caída automática a la mitad de velocidad
 const SKILLS = [
@@ -89,7 +88,6 @@ const SKILLS = [
   { name: 'Intercambiar pieza', desc: 'Cambia la pieza actual por otra aleatoria', activate() { return swapCurrent(); } },
   { name: 'Ralentizar tiempo', desc: 'La caída automática va a la mitad de velocidad durante 10s', activate() { slowLeft = SLOW_MS; } },
   { name: 'Deshacer colocación', desc: 'Revierte la última pieza colocada', activate() { return undoLast(); } },
-  { name: 'Reservar pieza', desc: 'Activa la reserva (C) durante 10 piezas', activate() { holdLeft = HOLD_PIECES; } },
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
@@ -177,8 +175,6 @@ const queueSection = document.getElementById('queue-section');
 const queueLabel = document.getElementById('queue-label');
 const queueCanvas = document.getElementById('queue-canvas');
 const queueCtx = queueCanvas.getContext('2d');
-const holdSection = document.getElementById('hold-section');
-const holdLabel = document.getElementById('hold-label');
 const holdCanvas = document.getElementById('hold-canvas');
 const holdCtx = holdCanvas.getContext('2d');
 const skillMenu = document.getElementById('skill-menu');
@@ -190,7 +186,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdLeft, holdUsed;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState, hold, holdUsed;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -371,9 +367,9 @@ function swapCurrent() {
   return true;
 }
 
-// Habilidad: reserva la pieza actual (o la intercambia con la reservada); una vez por pieza
+// Hold: reserva la pieza actual (o la intercambia con la reservada); una vez por pieza
 function holdPiece() {
-  if (holdLeft <= 0 || holdUsed) return;
+  if (holdUsed) return;
   if (!hold) {
     hold = current.type;
     holdUsed = true;
@@ -402,7 +398,7 @@ function saveUndo() {
     next: clonePiece(next),
     queue: queue.map(clonePiece),
     score, lines, level, dropInterval, rewardPending, bombPending, lightningPending,
-    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft, hold, holdLeft,
+    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft, hold,
   };
 }
 
@@ -418,7 +414,7 @@ function undoLast() {
   next = s.next;
   queue = s.queue;
   ({ score, lines, level, dropInterval, rewardPending, bombPending, lightningPending,
-    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft, hold, holdLeft } = s);
+    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft, hold } = s);
   current = piece;
   holdUsed = false;
   lastRotate = false;
@@ -649,7 +645,6 @@ function lockPiece() {
     }
   }
   holdUsed = false;
-  if (holdLeft > 0) holdLeft--;
   spawn();
 }
 
@@ -965,21 +960,17 @@ function drawNext() {
     for (let c = 0; c < shape[r].length; c++)
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
 
-  // habilidad "Reservar pieza": pieza guardada (atenuada si ya se usó con esta pieza)
-  holdSection.hidden = holdLeft <= 0;
+  // hold: pieza guardada (atenuada si ya se usó con esta pieza)
   holdCtx.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
-  if (holdLeft > 0) {
-    holdLabel.textContent = `HOLD (${holdLeft})`;
-    if (hold) {
-      const hs = PIECES[hold];
-      const hx = Math.floor((4 - hs[0].length) / 2);
-      const hy = Math.floor((4 - hs.length) / 2);
-      holdCtx.globalAlpha = holdUsed ? 0.4 : 1;
-      for (let r = 0; r < hs.length; r++)
-        for (let c = 0; c < hs[r].length; c++)
-          drawBlock(holdCtx, hx + c, hy + r, hs[r][c], NB);
-      holdCtx.globalAlpha = 1;
-    }
+  if (hold) {
+    const hs = PIECES[hold];
+    const hx = Math.floor((4 - hs[0].length) / 2);
+    const hy = Math.floor((4 - hs.length) / 2);
+    holdCtx.globalAlpha = holdUsed ? 0.4 : 1;
+    for (let r = 0; r < hs.length; r++)
+      for (let c = 0; c < hs[r].length; c++)
+        drawBlock(holdCtx, hx + c, hy + r, hs[r][c], NB);
+    holdCtx.globalAlpha = 1;
   }
 
   // habilidad "Ver 5 piezas": cola de las siguientes piezas tras `next`
@@ -1178,7 +1169,6 @@ function init() {
   slowLeft = 0;
   undoState = null;
   hold = 0;
-  holdLeft = 0;
   holdUsed = false;
   choosing = false;
   skillMenu.classList.add('hidden');
@@ -1222,6 +1212,8 @@ document.addEventListener('keydown', e => {
       openSkills();
       break;
     case 'KeyC':
+    case 'ShiftLeft':
+    case 'ShiftRight':
       holdPiece();
       break;
   }
