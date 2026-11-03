@@ -40,6 +40,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Pieza fantasma** (_ghost piece_): muestra dónde aterrizará la pieza actual.
 - **Vista previa** de la siguiente pieza.
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
+- **Bonus T-spin**: fijar una T justo tras rotarla, con 3 de las 4 esquinas ocupadas, puntúa 400 / 800 / 1200 / 1600 (0–3 líneas) × nivel × combo.
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
 - **Modo claro / oscuro**: botón con iconos ☀️ / 🌙 junto al título. Inicia en modo oscuro y recuerda tu última elección (`localStorage`).

@@ -71,6 +71,10 @@ const FREEZE_MS = 5000;
 const WILD_BONUS = 20;
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
+const T_TYPE = 3;
+const TSPIN_SCORES = [400, 800, 1200, 1600];
+const TSPIN_NAMES = ['T-SPIN', 'T-SPIN SINGLE', 'T-SPIN DOUBLE', 'T-SPIN TRIPLE'];
+const TSPIN_FLASH_MS = 1500;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -90,7 +94,7 @@ const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, lastRotate, tspinText, tspinLeft;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -146,6 +150,7 @@ function tryRotate() {
     if (!collide(rotated, current.x + kick, current.y)) {
       current.shape = rotated;
       current.x += kick;
+      lastRotate = true;
       return;
     }
   }
@@ -199,7 +204,18 @@ function gravity() {
   clearLines();
 }
 
-function clearLines() {
+// T-spin: T fijada justo tras rotar, con ≥3 esquinas de su caja 3×3 ocupadas (fuera del tablero cuenta)
+function isTSpin() {
+  if (current.type !== T_TYPE || !lastRotate) return false;
+  let filled = 0;
+  for (const [dr, dc] of [[0, 0], [0, 2], [2, 0], [2, 2]]) {
+    const r = current.y + dr, c = current.x + dc;
+    if (c < 0 || c >= COLS || r >= ROWS || (r >= 0 && board[r][c])) filled++;
+  }
+  return filled >= 3;
+}
+
+function clearLines(tspin) {
   let cleared = 0;
   let wilds = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
@@ -220,10 +236,18 @@ function clearLines() {
     if (Math.floor((lines + cleared) / FREEZE_EVERY) > Math.floor(lines / FREEZE_EVERY)) freezePending = true;
     lines += cleared;
     combo++;
-    score += ((LINE_SCORES[cleared] || 0) * level + wilds * WILD_BONUS * level) * combo;
+    const base = (tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared]) || 0;
+    score += (base * level + wilds * WILD_BONUS * level) * combo;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
+  } else if (tspin) {
+    score += TSPIN_SCORES[0] * level;
+    updateHUD();
+  }
+  if (tspin) {
+    tspinText = TSPIN_NAMES[cleared] || TSPIN_NAMES[3];
+    tspinLeft = TSPIN_FLASH_MS;
   }
   return cleared;
 }
@@ -237,6 +261,7 @@ function ghostY() {
 function hardDrop() {
   const gy = ghostY();
   score += (gy - current.y) * 2;
+  if (gy !== current.y) lastRotate = false;
   current.y = gy;
   lockPiece();
 }
@@ -244,6 +269,7 @@ function hardDrop() {
 function softDrop() {
   if (!collide(current.shape, current.x, current.y + 1)) {
     current.y++;
+    lastRotate = false;
     score += 1;
     updateHUD();
   } else {
@@ -263,8 +289,9 @@ function lockPiece() {
   } else if (current.type === FREEZE_TYPE) {
     freezeLeft = FREEZE_MS;
   } else {
+    const tspin = isTSpin();
     merge();
-    if (!clearLines()) {
+    if (!clearLines(tspin)) {
       combo = 0;
       updateHUD();
     }
@@ -273,6 +300,7 @@ function lockPiece() {
 }
 
 function spawn() {
+  lastRotate = false;
   if (rewardPending) {
     // Recompensa: el single pasa delante y `next` se conserva
     rewardPending = false;
@@ -411,6 +439,14 @@ function draw() {
     ctx.fillText(`❄ ${(freezeLeft / 1000).toFixed(1)}s`, canvas.width / 2, 26);
   }
 
+  // aviso de T-spin
+  if (tspinLeft > 0) {
+    ctx.fillStyle = COLORS[T_TYPE];
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(tspinText, canvas.width / 2, canvas.height / 3);
+  }
+
   // combo activo
   if (combo > 1) {
     ctx.fillStyle = '#ffd54f';
@@ -458,10 +494,12 @@ function loop(ts) {
   lastTime = ts;
   if (freezeLeft > 0) freezeLeft = Math.max(0, freezeLeft - dt);
   else dropAccum += dt;
+  if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
   if (dropAccum >= dropInterval) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
+      lastRotate = false;
     } else {
       lockPiece();
     }
@@ -510,6 +548,9 @@ function init() {
   freezePending = false;
   freezeLeft = 0;
   combo = 0;
+  lastRotate = false;
+  tspinText = '';
+  tspinLeft = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
@@ -524,10 +565,10 @@ document.addEventListener('keydown', e => {
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
-      if (!collide(current.shape, current.x - 1, current.y)) current.x--;
+      if (!collide(current.shape, current.x - 1, current.y)) { current.x--; lastRotate = false; }
       break;
     case 'ArrowRight':
-      if (!collide(current.shape, current.x + 1, current.y)) current.x++;
+      if (!collide(current.shape, current.x + 1, current.y)) { current.x++; lastRotate = false; }
       break;
     case 'ArrowDown':
       softDrop();
