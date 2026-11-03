@@ -87,6 +87,7 @@ const SKILLS = [
   { name: 'Ver 5 piezas', desc: 'Muestra las siguientes 5 piezas durante 10 piezas', activate() { previewLeft = PREVIEW_PIECES; } },
   { name: 'Intercambiar pieza', desc: 'Cambia la pieza actual por otra aleatoria', activate() { return swapCurrent(); } },
   { name: 'Ralentizar tiempo', desc: 'La caída automática va a la mitad de velocidad durante 10s', activate() { slowLeft = SLOW_MS; } },
+  { name: 'Deshacer colocación', desc: 'Revierte la última pieza colocada', activate() { return undoLast(); } },
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
@@ -183,7 +184,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing, undoState;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -364,6 +365,45 @@ function swapCurrent() {
   return true;
 }
 
+function clonePiece(p) {
+  return { ...p, shape: p.shape.map(r => [...r]) };
+}
+
+// Deshacer: foto del estado justo antes de bloquear la pieza (un solo nivel)
+function saveUndo() {
+  undoState = {
+    board: board.map(r => [...r]),
+    type: current.type,
+    next: clonePiece(next),
+    queue: queue.map(clonePiece),
+    score, lines, level, dropInterval, rewardPending, bombPending, lightningPending,
+    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft,
+  };
+}
+
+// Habilidad: revierte la última colocación y devuelve la pieza arriba; false si no hay nada que deshacer
+function undoLast() {
+  if (!undoState) return false;
+  const s = undoState;
+  const piece = randomPiece(s.type);
+  const saved = board;
+  board = s.board;
+  const fits = !collide(piece.shape, piece.x, piece.y);
+  if (!fits) { board = saved; return false; }
+  next = s.next;
+  queue = s.queue;
+  ({ score, lines, level, dropInterval, rewardPending, bombPending, lightningPending,
+    tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, tetrises, previewLeft } = s);
+  current = piece;
+  lastRotate = false;
+  dropAccum = 0;
+  fadeLeft = 0;
+  undoState = null;
+  updateHUD();
+  drawNext();
+  return true;
+}
+
 function merge() {
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
@@ -415,6 +455,7 @@ function gravity() {
 // Basura: sube todo una fila y entra una fila gris con un hueco aleatorio por abajo
 function addGarbage() {
   if (board[0].some(Boolean)) { endGame(); return; }
+  undoState = null; // el tablero ya cambió: no se puede revertir
   board.shift();
   const hole = Math.floor(Math.random() * COLS);
   board.push(Array.from({ length: COLS }, (_, c) => (c === hole ? 0 : GARBAGE_TYPE)));
@@ -547,6 +588,7 @@ function isInvisible() {
 }
 
 function lockPiece() {
+  saveUndo();
   if (current.type === BOMB_TYPE) {
     explode();
   } else if (isLightning(current.type)) {
@@ -1089,6 +1131,7 @@ function init() {
   energy = 0;
   previewLeft = 0;
   slowLeft = 0;
+  undoState = null;
   choosing = false;
   skillMenu.classList.add('hidden');
   lastTime = performance.now();
