@@ -1042,10 +1042,13 @@ function loadRecords() {
   const rec = { scores: [], bestCombo: 0, maxLines: 0 };
   try {
     const data = JSON.parse(localStorage.getItem(RECORDS_KEY));
-    if (data && Array.isArray(data.scores)) {
-      rec.scores = data.scores
-        .filter(s => s && typeof s.score === 'number')
-        .slice(0, RECORDS_TOP);
+    if (data) {
+      if (Array.isArray(data.scores)) {
+        rec.scores = data.scores
+          .filter(s => s && Number.isFinite(s.score) && s.score >= 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, RECORDS_TOP);
+      }
       rec.bestCombo = Number(data.bestCombo) || 0;
       rec.maxLines = Number(data.maxLines) || 0;
     }
@@ -1147,7 +1150,7 @@ resetRecordsBtn.addEventListener('click', () => {
   }
   resetRecordsBtn.blur();
 });
-[playBtn, resetRecordsBtn].forEach(b => {
+[playBtn].forEach(b => { // resetRecordsBtn sí admite Enter/Space (confirm() evita borrados accidentales)
   b.addEventListener('keydown', e => {
     if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
   });
@@ -1320,7 +1323,7 @@ function init() {
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if (!board) { // pantalla de inicio: aún no hay partida
-    if ((e.code === 'Enter' || e.code === 'Space') && e.target !== resetRecordsBtn) { e.preventDefault(); init(); }
+    if ((e.code === 'Enter' || e.code === 'Space') && (e.target === document.body || e.target === playBtn)) { e.preventDefault(); init(); }
     return;
   }
   if (choosing) {
@@ -1363,6 +1366,7 @@ document.addEventListener('keydown', e => {
 restartBtn.addEventListener('click', init);
 
 modeSelect.addEventListener('change', () => {
+  if (!board) { modeSelect.blur(); return; } // en la pantalla de inicio el modo se aplica con Jugar
   init();
   modeSelect.blur(); // evita que las flechas cambien el modo en pleno juego
 });
