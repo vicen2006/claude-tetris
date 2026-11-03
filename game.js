@@ -81,9 +81,12 @@ const ENERGY_MAX = 100;
 const ENERGY_PER_LINE = 10;
 const QUEUE_SIZE = 4; // next + QUEUE_SIZE = 5 piezas visibles
 const PREVIEW_PIECES = 10;
+const SLOW_MS = 10000;
+const SLOW_FACTOR = 2; // caída automática a la mitad de velocidad
 const SKILLS = [
   { name: 'Ver 5 piezas', desc: 'Muestra las siguientes 5 piezas durante 10 piezas', activate() { previewLeft = PREVIEW_PIECES; } },
   { name: 'Intercambiar pieza', desc: 'Cambia la pieza actual por otra aleatoria', activate() { return swapCurrent(); } },
+  { name: 'Ralentizar tiempo', desc: 'La caída automática va a la mitad de velocidad durante 10s', activate() { slowLeft = SLOW_MS; } },
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
@@ -180,7 +183,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, choosing;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, reverseLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal, fadeCells, fadeLeft, queue, energy, previewLeft, slowLeft, choosing;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -801,6 +804,16 @@ function draw() {
     ctx.fillText(`❄ ${(freezeLeft / 1000).toFixed(1)}s`, canvas.width / 2, 26);
   }
 
+  // ralentizado: tinte suave con cuenta atrás
+  if (slowLeft > 0) {
+    ctx.fillStyle = 'rgba(128,203,196,0.08)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#80cbc4';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`🐢 ${(slowLeft / 1000).toFixed(1)}s`, canvas.width - 6, canvas.height - 8);
+  }
+
   // flash de filas eliminadas
   if (flashLeft > 0) {
     ctx.fillStyle = `rgba(255,255,255,${flashLeft / CLEAR_FLASH_MS})`;
@@ -963,7 +976,8 @@ function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
   if (freezeLeft > 0) freezeLeft = Math.max(0, freezeLeft - dt);
-  else dropAccum += dt;
+  else dropAccum += slowLeft > 0 ? dt / SLOW_FACTOR : dt;
+  if (slowLeft > 0) slowLeft = Math.max(0, slowLeft - dt);
   if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
   if (perfectLeft > 0) perfectLeft = Math.max(0, perfectLeft - dt);
   if (reverseLeft > 0) reverseLeft = Math.max(0, reverseLeft - dt);
@@ -1074,6 +1088,7 @@ function init() {
   comboPulse = 0;
   energy = 0;
   previewLeft = 0;
+  slowLeft = 0;
   choosing = false;
   skillMenu.classList.add('hidden');
   lastTime = performance.now();
