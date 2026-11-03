@@ -25,6 +25,7 @@ const COLORS = [
   '#ffffff', // * - comodín (arcoíris, ver drawBlock)
   '#40c4ff', // G - gravedad (azul claro)
   '#b3e5fc', // C - congelar (hielo)
+  '#616161', // # - basura (gris oscuro, solo tablero)
 ];
 
 const PIECES = [
@@ -48,6 +49,7 @@ const PIECES = [
   null,                                        // * - comodín: solo existe en el tablero
   [[18]],                                      // G - gravedad, cada GRAVITY_EVERY líneas
   [[19]],                                      // C - congelar, cada FREEZE_EVERY líneas
+  null,                                        // # - basura: solo existe en el tablero
 ];
 
 // El pool aleatorio excluye las especiales: single (recompensa), bomba y rayo
@@ -59,6 +61,7 @@ const TINT_TYPE = 16;
 const WILD_TYPE = 17; // celda comodín: solo existe en el tablero
 const GRAVITY_TYPE = 18;
 const FREEZE_TYPE = 19;
+const GARBAGE_TYPE = 20; // celda de basura: solo existe en el tablero
 // Peso de cada tipo en el pool aleatorio: clásicas comunes, especiales (8-11) ocasionales
 const PIECE_WEIGHTS = [0, 6, 6, 6, 6, 6, 6, 6, 1, 1, 1, 1];
 const WEIGHT_TOTAL = PIECE_WEIGHTS.reduce((a, b) => a + b, 0);
@@ -84,13 +87,15 @@ const PULSE_MS = 300;
 const PARTICLES_PER_CELL = 2;
 const SOUND_KEY = 'tetris-sound';
 const CHALLENGE_KEY = 'tetris-challenges';
-// Desafíos progresivos: alcanzar `target` de `goal` (lines | score | tetris) antes de `timeMs`
+// Desafíos progresivos: alcanzar `target` de `goal` (lines | score | tetris) antes de `timeMs`;
+// `survive`: aguantar `timeMs` (target = segundos) mientras sube una fila de basura cada `garbageMs`
 const CHALLENGES = [
   { name: '10 líneas en 60 s', goal: 'lines', target: 10, timeMs: 60000 },
   { name: '20 líneas en 90 s', goal: 'lines', target: 20, timeMs: 90000 },
   { name: '40 líneas en 2 min', goal: 'lines', target: 40, timeMs: 120000 },
   { name: '5.000 puntos en 2 min', goal: 'score', target: 5000, timeMs: 120000 },
   { name: '3 Tetris en 3 min', goal: 'tetris', target: 3, timeMs: 180000 },
+  { name: 'Sobrevive 90 s con basura', goal: 'survive', target: 90, timeMs: 90000, garbageMs: 10000 },
 ];
 const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
@@ -120,7 +125,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -325,6 +330,19 @@ function gravity() {
   clearLines();
 }
 
+// Basura: sube todo una fila y entra una fila gris con un hueco aleatorio por abajo
+function addGarbage() {
+  if (board[0].some(Boolean)) { endGame(); return; }
+  board.shift();
+  const hole = Math.floor(Math.random() * COLS);
+  board.push(Array.from({ length: COLS }, (_, c) => (c === hole ? 0 : GARBAGE_TYPE)));
+  if (collide(current.shape, current.x, current.y)) {
+    // La pieza en caída sube con la pila; si no cabe, fin de partida
+    if (current.y > 0 && !collide(current.shape, current.x, current.y - 1)) current.y--;
+    else endGame();
+  }
+}
+
 // T-spin: T fijada justo tras rotar, con ≥3 esquinas de su caja 3×3 ocupadas (fuera del tablero cuenta)
 function isTSpin() {
   if (current.type !== T_TYPE || !lastRotate) return false;
@@ -438,8 +456,9 @@ function lockPiece() {
 }
 
 function challengeProgress() {
-  const goal = CHALLENGES[challenge].goal;
-  return goal === 'lines' ? lines : goal === 'score' ? score : tetrises;
+  const ch = CHALLENGES[challenge];
+  if (ch.goal === 'survive') return Math.floor((ch.timeMs - Math.max(timeLeft, 0)) / 1000);
+  return ch.goal === 'lines' ? lines : ch.goal === 'score' ? score : tetrises;
 }
 
 function getUnlocked() {
@@ -621,6 +640,13 @@ function draw() {
     for (let c = 0; c < current.shape[r].length; c++)
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
 
+  // desafío con basura: barra que se llena hasta la próxima fila
+  if (challenge >= 0 && CHALLENGES[challenge].garbageMs) {
+    const frac = 1 - Math.max(garbageLeft, 0) / CHALLENGES[challenge].garbageMs;
+    ctx.fillStyle = '#ff5252';
+    ctx.fillRect(0, 0, canvas.width * frac, 4);
+  }
+
   // congelado: capa de hielo con cuenta atrás
   if (freezeLeft > 0) {
     ctx.fillStyle = 'rgba(129,212,250,0.18)';
@@ -746,7 +772,18 @@ function loop(ts) {
   if (challenge >= 0) {
     timeLeft -= dt;
     updateTimer();
-    if (timeLeft <= 0) endGame('TIEMPO AGOTADO');
+    const garbageMs = CHALLENGES[challenge].garbageMs;
+    if (garbageMs && timeLeft > 0) {
+      garbageLeft -= dt;
+      if (garbageLeft <= 0) {
+        garbageLeft += garbageMs;
+        addGarbage();
+      }
+    }
+    if (timeLeft <= 0 && !gameOver) {
+      if (CHALLENGES[challenge].goal === 'survive') winChallenge();
+      else endGame('TIEMPO AGOTADO');
+    }
   }
   if (!gameOver && dropAccum >= dropInterval) {
     dropAccum = 0;
@@ -789,6 +826,7 @@ function init() {
   if (isNaN(challenge)) challenge = -1;
   timeLeft = challenge >= 0 ? CHALLENGES[challenge].timeMs : 0;
   tetrises = 0;
+  garbageLeft = challenge >= 0 ? CHALLENGES[challenge].garbageMs || 0 : 0;
   shownSecs = -1;
   board = createBoard();
   score = 0;
