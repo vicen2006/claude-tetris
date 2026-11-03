@@ -79,6 +79,7 @@ const nextCtx = nextCanvas.getContext('2d');
 const scoreEl = document.getElementById('score');
 const linesEl = document.getElementById('lines');
 const levelEl = document.getElementById('level');
+const comboEl = document.getElementById('combo');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
@@ -89,7 +90,7 @@ const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -218,11 +219,13 @@ function clearLines() {
     if (Math.floor((lines + cleared) / GRAVITY_EVERY) > Math.floor(lines / GRAVITY_EVERY)) gravityPending = true;
     if (Math.floor((lines + cleared) / FREEZE_EVERY) > Math.floor(lines / FREEZE_EVERY)) freezePending = true;
     lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level + wilds * WILD_BONUS * level;
+    combo++;
+    score += ((LINE_SCORES[cleared] || 0) * level + wilds * WILD_BONUS * level) * combo;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
   }
+  return cleared;
 }
 
 function ghostY() {
@@ -261,7 +264,10 @@ function lockPiece() {
     freezeLeft = FREEZE_MS;
   } else {
     merge();
-    clearLines();
+    if (!clearLines()) {
+      combo = 0;
+      updateHUD();
+    }
   }
   spawn();
 }
@@ -303,6 +309,7 @@ function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
+  comboEl.textContent = combo > 1 ? `x${combo}` : '—';
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -403,6 +410,14 @@ function draw() {
     ctx.textAlign = 'center';
     ctx.fillText(`❄ ${(freezeLeft / 1000).toFixed(1)}s`, canvas.width / 2, 26);
   }
+
+  // combo activo
+  if (combo > 1) {
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`COMBO x${combo}`, canvas.width / 2, freezeLeft > 0 ? 52 : 26);
+  }
 }
 
 function drawNext() {
@@ -494,6 +509,7 @@ function init() {
   gravityPending = false;
   freezePending = false;
   freezeLeft = 0;
+  combo = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
