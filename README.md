@@ -41,6 +41,8 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Vista previa** de la siguiente pieza.
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Bonus T-spin**: fijar una T justo tras rotarla, con 3 de las 4 esquinas ocupadas, puntúa 400 / 800 / 1200 / 1600 (0–3 líneas) × nivel × combo.
+- **Combo**: despejar líneas en fijaciones consecutivas multiplica la puntuación por el número de combo (`x2`, `x3`…). Fijar una pieza normal sin despejar lo reinicia.
+- **Back-to-Back (B2B)**: encadenar despejes difíciles (Tetris o T-spin con líneas) multiplica por ×1.5 la puntuación de líneas a partir del segundo. Un despeje normal de 1–3 líneas rompe la cadena; fijar sin despejar y los powerups no la afectan.
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
 - **Modo claro / oscuro**: botón con iconos ☀️ / 🌙 junto al título. Inicia en modo oscuro y recuerda tu última elección (`localStorage`).

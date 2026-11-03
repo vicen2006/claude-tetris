@@ -75,6 +75,7 @@ const T_TYPE = 3;
 const TSPIN_SCORES = [400, 800, 1200, 1600];
 const TSPIN_NAMES = ['T-SPIN', 'T-SPIN SINGLE', 'T-SPIN DOUBLE', 'T-SPIN TRIPLE'];
 const TSPIN_FLASH_MS = 1500;
+const B2B_MULT = 1.5;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -84,6 +85,7 @@ const scoreEl = document.getElementById('score');
 const linesEl = document.getElementById('lines');
 const levelEl = document.getElementById('level');
 const comboEl = document.getElementById('combo');
+const b2bEl = document.getElementById('b2b');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
@@ -94,7 +96,7 @@ const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, lastRotate, tspinText, tspinLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -235,9 +237,12 @@ function clearLines(tspin) {
     if (Math.floor((lines + cleared) / GRAVITY_EVERY) > Math.floor(lines / GRAVITY_EVERY)) gravityPending = true;
     if (Math.floor((lines + cleared) / FREEZE_EVERY) > Math.floor(lines / FREEZE_EVERY)) freezePending = true;
     lines += cleared;
+    const hard = cleared === 4 || tspin;
+    const b2bBonus = hard && b2b > 0;
+    b2b = hard ? b2b + 1 : 0;
     combo++;
     const base = (tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared]) || 0;
-    score += (base * level + wilds * WILD_BONUS * level) * combo;
+    score += Math.round((base * level * (b2bBonus ? B2B_MULT : 1) + wilds * WILD_BONUS * level) * combo);
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
@@ -338,6 +343,7 @@ function updateHUD() {
   linesEl.textContent = lines;
   levelEl.textContent = level;
   comboEl.textContent = combo > 1 ? `x${combo}` : '—';
+  b2bEl.textContent = b2b > 1 ? `x${b2b}` : '—';
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -454,6 +460,14 @@ function draw() {
     ctx.textAlign = 'center';
     ctx.fillText(`COMBO x${combo}`, canvas.width / 2, freezeLeft > 0 ? 52 : 26);
   }
+
+  // B2B activo
+  if (b2b > 1) {
+    ctx.fillStyle = '#4dd0e1';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`B2B x${b2b}`, canvas.width / 2, 26 + (freezeLeft > 0 ? 26 : 0) + (combo > 1 ? 26 : 0));
+  }
 }
 
 function drawNext() {
@@ -548,6 +562,7 @@ function init() {
   freezePending = false;
   freezeLeft = 0;
   combo = 0;
+  b2b = 0;
   lastRotate = false;
   tspinText = '';
   tspinLeft = 0;
