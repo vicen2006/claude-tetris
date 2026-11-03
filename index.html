@@ -120,10 +120,27 @@
       </div>
     </div>
 
+    <div id="start-screen" class="overlay">
+      <div class="overlay-box">
+        <p id="start-title">RECORDS</p>
+        <div id="start-records" class="records"></div>
+        <button id="play-btn" type="button">Jugar</button>
+        <button id="reset-records-btn" class="link-btn" type="button">Resetear records</button>
+      </div>
+    </div>
+
     <div id="overlay" class="overlay hidden">
       <div class="overlay-box">
         <p id="overlay-title">GAME OVER</p>
         <p id="overlay-score"></p>
+        <form id="name-form" class="name-form hidden">
+          <label for="name-input">¡Entras al top 5! Tu nombre:</label>
+          <div class="name-row">
+            <input id="name-input" type="text" maxlength="12" autocomplete="off" />
+            <button id="save-record-btn" type="submit">Guardar</button>
+          </div>
+        </form>
+        <div id="overlay-records" class="records hidden"></div>
         <button id="restart-btn">Reiniciar</button>
       </div>
     </div>
