@@ -78,6 +78,12 @@ const TSPIN_FLASH_MS = 1500;
 const B2B_MULT = 1.5;
 const PERFECT_BONUS = 2000;
 const PERFECT_FLASH_MS = 2000;
+const CLEAR_FLASH_MS = 150;
+const FLOAT_MS = 900;
+const PULSE_MS = 300;
+const PARTICLES_PER_CELL = 2;
+const SOUND_KEY = 'tetris-sound';
+const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -93,12 +99,110 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
+const soundBtn = document.getElementById('sound-toggle');
 
 const THEME_KEY = 'tetris-theme';
 let gridColor = '#22222e';
 let blockEdge = 'transparent';
+let audioCtx = null;
+let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse;
+
+// Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
+function getAudio() {
+  if (muted) return null;
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playTone(freq, dur, type, delay) {
+  const ac = getAudio();
+  if (!ac) return;
+  const t = ac.currentTime + (delay || 0);
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = type || 'triangle';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.15, t + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain).connect(ac.destination);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+// Arpegio de `n` notas; el tono sube ~2 semitonos por cada combo (tope en 12)
+function playClear(n, comboN, strong) {
+  const base = 440 * 2 ** (Math.min(Math.max(comboN, 1) - 1, 12) / 6);
+  const steps = [0, 4, 7, 12];
+  for (let i = 0; i < Math.max(n, 1); i++)
+    playTone(base * 2 ** (steps[i] / 12), 0.18, strong ? 'square' : 'triangle', i * 0.07);
+}
+
+function playPerfect() {
+  [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => playTone(f, 0.3, 'triangle', i * 0.08));
+}
+
+function playBreak() {
+  playTone(110, 0.15, 'sawtooth');
+}
+
+function setMuted(m, save) {
+  muted = m;
+  soundBtn.textContent = m ? '🔇' : '🔊';
+  soundBtn.setAttribute('aria-pressed', String(m));
+  soundBtn.setAttribute('aria-label', m ? 'Activar sonido' : 'Silenciar sonido');
+  if (save) {
+    try { localStorage.setItem(SOUND_KEY, m ? 'off' : 'on'); } catch (e) { /* almacenamiento no disponible */ }
+  }
+}
+
+function loadSound() {
+  let saved = null;
+  try { saved = localStorage.getItem(SOUND_KEY); } catch (e) { /* ignorar */ }
+  setMuted(saved === 'off', false);
+}
+
+function pulseEl(el) {
+  el.classList.remove('pulse');
+  void el.offsetWidth;
+  el.classList.add('pulse');
+}
+
+// Efectos al limpiar líneas: flash, partículas, texto flotante, pulso de HUD y sonido
+function chainFx(rows, gained, cleared, strong) {
+  flashRows = rows.map(r => r.y);
+  flashLeft = CLEAR_FLASH_MS;
+  const perRow = PARTICLES_PER_CELL + Math.min(combo, 6);
+  for (const row of rows) {
+    row.cells.forEach((v, c) => {
+      for (let i = 0; i < perRow; i++) {
+        const life = 600 + Math.random() * 300;
+        particles.push({
+          x: c * BLOCK + BLOCK / 2,
+          y: row.y * BLOCK + BLOCK / 2,
+          vx: (Math.random() - 0.5) * 0.25,
+          vy: -Math.random() * 0.25,
+          life,
+          max: life,
+          color: v === WILD_TYPE ? RAINBOW[Math.floor(Math.random() * RAINBOW.length)] : COLORS[v]
+        });
+      }
+    });
+  }
+  const midY = rows.reduce((s, r) => s + r.y, 0) / rows.length;
+  floats.push({ text: '+' + gained.toLocaleString(), x: canvas.width / 2, y: midY * BLOCK + BLOCK / 2, life: FLOAT_MS });
+  if (combo > 1) { comboPulse = PULSE_MS; pulseEl(comboEl); }
+  if (b2b > 1) pulseEl(b2bEl);
+  playClear(cleared, combo, strong);
+  if (perfectLeft === PERFECT_FLASH_MS) playPerfect();
+}
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -222,8 +326,11 @@ function isTSpin() {
 function clearLines(tspin) {
   let cleared = 0;
   let wilds = 0;
+  const fullRows = [];
+  const before = score;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
+      fullRows.push({ y: r - cleared, cells: [...board[r]] });
       wilds += board[r].filter(v => v === WILD_TYPE).length;
       board.splice(r, 1);
       board.unshift(new Array(COLS).fill(0));
@@ -252,9 +359,11 @@ function clearLines(tspin) {
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
+    chainFx(fullRows, score - before, cleared, hard);
   } else if (tspin) {
     score += TSPIN_SCORES[0] * level;
     updateHUD();
+    playTone(330, 0.2, 'square');
   }
   if (tspin) {
     tspinText = TSPIN_NAMES[cleared] || TSPIN_NAMES[3];
@@ -303,6 +412,7 @@ function lockPiece() {
     const tspin = isTSpin();
     merge();
     if (!clearLines(tspin)) {
+      if (combo > 1) playBreak();
       combo = 0;
       updateHUD();
     }
@@ -451,6 +561,30 @@ function draw() {
     ctx.fillText(`❄ ${(freezeLeft / 1000).toFixed(1)}s`, canvas.width / 2, 26);
   }
 
+  // flash de filas eliminadas
+  if (flashLeft > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${flashLeft / CLEAR_FLASH_MS})`;
+    for (const y of flashRows) ctx.fillRect(0, y * BLOCK, canvas.width, BLOCK);
+  }
+
+  // partículas
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+
+  // puntos flotantes
+  ctx.font = 'bold 20px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd54f';
+  for (const f of floats) {
+    ctx.globalAlpha = Math.max(0, f.life / FLOAT_MS);
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+
   // aviso de T-spin
   if (tspinLeft > 0) {
     ctx.fillStyle = COLORS[T_TYPE];
@@ -470,7 +604,7 @@ function draw() {
   // combo activo
   if (combo > 1) {
     ctx.fillStyle = '#ffd54f';
-    ctx.font = 'bold 18px sans-serif';
+    ctx.font = `bold ${Math.round(18 + 8 * (comboPulse / PULSE_MS))}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(`COMBO x${combo}`, canvas.width / 2, freezeLeft > 0 ? 52 : 26);
   }
@@ -524,6 +658,20 @@ function loop(ts) {
   else dropAccum += dt;
   if (tspinLeft > 0) tspinLeft = Math.max(0, tspinLeft - dt);
   if (perfectLeft > 0) perfectLeft = Math.max(0, perfectLeft - dt);
+  if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
+  if (comboPulse > 0) comboPulse = Math.max(0, comboPulse - dt);
+  for (const p of particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 0.0006 * dt;
+    p.life -= dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+  for (const f of floats) {
+    f.y -= 0.04 * dt;
+    f.life -= dt;
+  }
+  floats = floats.filter(f => f.life > 0);
   if (dropAccum >= dropInterval) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
@@ -582,6 +730,11 @@ function init() {
   tspinText = '';
   tspinLeft = 0;
   perfectLeft = 0;
+  flashRows = [];
+  flashLeft = 0;
+  particles = [];
+  floats = [];
+  comboPulse = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
@@ -630,5 +783,17 @@ themeBtn.addEventListener('keyup', e => {
   if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
 });
 
+soundBtn.addEventListener('click', () => {
+  setMuted(!muted, true);
+  soundBtn.blur();
+});
+soundBtn.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+});
+soundBtn.addEventListener('keyup', e => {
+  if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+});
+
 loadTheme();
+loadSound();
 init();

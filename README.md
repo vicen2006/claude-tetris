@@ -45,6 +45,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Back-to-Back (B2B)**: encadenar despejes difíciles (Tetris o T-spin con líneas) multiplica por ×1.5 la puntuación de líneas a partir del segundo. Un despeje normal de 1–3 líneas rompe la cadena; fijar sin despejar y los powerups no la afectan.
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
+- **Efectos al encadenar**: al limpiar líneas las filas parpadean, saltan partículas (más con combo alto), aparece `+puntos` flotante y el contador de COMBO/B2B pulsa. Sonido sintetizado cuyo tono sube con el combo, con un tono grave al perderlo. El botón 🔊/🔇 junto al tema lo silencia y recuerda tu elección (`localStorage`, clave `tetris-sound`).
 - **Modo claro / oscuro**: botón con iconos ☀️ / 🌙 junto al título. Inicia en modo oscuro y recuerda tu última elección (`localStorage`).
 
 ---
