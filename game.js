@@ -26,6 +26,7 @@ const COLORS = [
   '#40c4ff', // G - gravedad (azul claro)
   '#b3e5fc', // C - congelar (hielo)
   '#616161', // # - basura (gris oscuro, solo tablero)
+  '#8d6e63', // F - fijo (marrón piedra, solo tablero)
 ];
 
 const PIECES = [
@@ -50,6 +51,7 @@ const PIECES = [
   [[18]],                                      // G - gravedad, cada GRAVITY_EVERY líneas
   [[19]],                                      // C - congelar, cada FREEZE_EVERY líneas
   null,                                        // # - basura: solo existe en el tablero
+  null,                                        // F - fijo: solo existe en el tablero
 ];
 
 // El pool aleatorio excluye las especiales: single (recompensa), bomba y rayo
@@ -62,6 +64,7 @@ const WILD_TYPE = 17; // celda comodín: solo existe en el tablero
 const GRAVITY_TYPE = 18;
 const FREEZE_TYPE = 19;
 const GARBAGE_TYPE = 20; // celda de basura: solo existe en el tablero
+const FIXED_TYPE = 21; // bloque fijo pre-colocado (desafío `clear`): solo existe en el tablero
 // Peso de cada tipo en el pool aleatorio: clásicas comunes, especiales (8-11) ocasionales
 const PIECE_WEIGHTS = [0, 6, 6, 6, 6, 6, 6, 6, 1, 1, 1, 1];
 const WEIGHT_TOTAL = PIECE_WEIGHTS.reduce((a, b) => a + b, 0);
@@ -89,6 +92,8 @@ const SOUND_KEY = 'tetris-sound';
 const CHALLENGE_KEY = 'tetris-challenges';
 // Desafíos progresivos: alcanzar `target` de `goal` (lines | score | tetris) antes de `timeMs`;
 // `survive`: aguantar `timeMs` (target = segundos) mientras sube una fila de basura cada `garbageMs`
+// `clear`: el tablero arranca con `layout` (strings de COLS chars, '#' = bloque fijo, alineado al fondo);
+// se gana al eliminar todos los fijos (el target es el nº de celdas del layout)
 const CHALLENGES = [
   { name: '10 líneas en 60 s', goal: 'lines', target: 10, timeMs: 60000 },
   { name: '20 líneas en 90 s', goal: 'lines', target: 20, timeMs: 90000 },
@@ -96,6 +101,30 @@ const CHALLENGES = [
   { name: '5.000 puntos en 2 min', goal: 'score', target: 5000, timeMs: 120000 },
   { name: '3 Tetris en 3 min', goal: 'tetris', target: 3, timeMs: 180000 },
   { name: 'Sobrevive 90 s con basura', goal: 'survive', target: 90, timeMs: 90000, garbageMs: 10000 },
+  { name: 'Limpia la pirámide', goal: 'clear', timeMs: 120000, layout: [
+    '....##....',
+    '...####...',
+    '..######..',
+    '.########.',
+  ] },
+  { name: 'Limpia las columnas', goal: 'clear', timeMs: 150000, layout: [
+    '#..#..#..#',
+    '#..#..#..#',
+    '#.##..#.##',
+    '#.##.##.##',
+    '####.##.##',
+    '####.#####',
+  ] },
+  { name: 'Limpia el damero', goal: 'clear', timeMs: 180000, layout: [
+    '#.#.#.#.#.',
+    '.#.#.#.#.#',
+    '#.#.#.#.#.',
+    '.#.#.#.#.#',
+    '#.#.#.#.#.',
+    '.#.#.#.#.#',
+    '#.#.#.#.#.',
+    '.#.#.#.#.#',
+  ] },
 ];
 const RAINBOW = ['#ff5252', '#ffd54f', '#81c784', '#4dd0e1', '#ba68c8'];
 
@@ -125,7 +154,7 @@ let blockEdge = 'transparent';
 let audioCtx = null;
 let muted = false;
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft;
+let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, rewardPending, bombPending, lightningPending, tintPending, gravityPending, freezePending, freezeLeft, combo, b2b, lastRotate, tspinText, tspinLeft, perfectLeft, flashRows, flashLeft, particles, floats, comboPulse, challenge, timeLeft, tetrises, shownSecs, garbageLeft, fixedTotal;
 
 // Audio sintetizado (Web Audio); el contexto se crea al primer sonido, ya dentro de un gesto del usuario
 function getAudio() {
@@ -310,7 +339,7 @@ function strike() {
 function tint() {
   const below = current.y + 1;
   const target = below < ROWS ? board[below][current.x] : 0;
-  if (!target || target === WILD_TYPE) return;
+  if (!target || target === WILD_TYPE || target === FIXED_TYPE) return;
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
       if (board[r][c] === target) board[r][c] = WILD_TYPE;
@@ -341,6 +370,24 @@ function addGarbage() {
     if (current.y > 0 && !collide(current.shape, current.x, current.y - 1)) current.y--;
     else endGame();
   }
+}
+
+// Desafío `clear`: coloca el layout al fondo del tablero y devuelve cuántos bloques fijos puso
+function placeLayout(layout) {
+  let n = 0;
+  const top = ROWS - layout.length;
+  layout.forEach((row, i) => {
+    for (let c = 0; c < COLS; c++) {
+      if (row[c] === '#') { board[top + i][c] = FIXED_TYPE; n++; }
+    }
+  });
+  return n;
+}
+
+function countFixed() {
+  let n = 0;
+  for (const row of board) for (const v of row) if (v === FIXED_TYPE) n++;
+  return n;
 }
 
 // T-spin: T fijada justo tras rotar, con ≥3 esquinas de su caja 3×3 ocupadas (fuera del tablero cuenta)
@@ -448,15 +495,24 @@ function lockPiece() {
       updateHUD();
     }
   }
-  if (challenge >= 0 && challengeProgress() >= CHALLENGES[challenge].target) {
-    winChallenge();
-    return;
+  if (challenge >= 0) {
+    updateHUD();
+    if (challengeProgress() >= challengeTarget()) {
+      winChallenge();
+      return;
+    }
   }
   spawn();
 }
 
+function challengeTarget() {
+  const ch = CHALLENGES[challenge];
+  return ch.goal === 'clear' ? fixedTotal : ch.target;
+}
+
 function challengeProgress() {
   const ch = CHALLENGES[challenge];
+  if (ch.goal === 'clear') return fixedTotal - countFixed();
   if (ch.goal === 'survive') return Math.floor((ch.timeMs - Math.max(timeLeft, 0)) / 1000);
   return ch.goal === 'lines' ? lines : ch.goal === 'score' ? score : tetrises;
 }
@@ -545,8 +601,8 @@ function updateHUD() {
   b2bEl.textContent = b2b > 1 ? `x${b2b}` : '—';
   challengeInfo.hidden = challenge < 0;
   if (challenge >= 0) {
-    const ch = CHALLENGES[challenge];
-    goalEl.textContent = `${Math.min(challengeProgress(), ch.target).toLocaleString()}/${ch.target.toLocaleString()}`;
+    const target = challengeTarget();
+    goalEl.textContent = `${Math.min(challengeProgress(), target).toLocaleString()}/${target.toLocaleString()}`;
     updateTimer();
   }
 }
@@ -829,6 +885,7 @@ function init() {
   garbageLeft = challenge >= 0 ? CHALLENGES[challenge].garbageMs || 0 : 0;
   shownSecs = -1;
   board = createBoard();
+  fixedTotal = challenge >= 0 && CHALLENGES[challenge].layout ? placeLayout(CHALLENGES[challenge].layout) : 0;
   score = 0;
   lines = 0;
   level = 1;
